@@ -5,13 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Смена картинок по наклону</title>
     <style>
-        /* Обнуляем отступы и делаем картинку на весь экран */
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-
         body {
             background: #000;
             display: flex;
@@ -21,8 +19,6 @@
             overflow: hidden;
             font-family: Arial, sans-serif;
         }
-
-        /* Контейнер для картинки – занимает всю площадь экрана */
         .image-container {
             width: 100vw;
             height: 100vh;
@@ -31,147 +27,161 @@
             align-items: center;
             background: #111;
         }
-
-        /* Сама картинка – сохраняем пропорции 9:16, масштабируем, чтобы влезла */
         #current-image {
-            width: auto;
+            width: 100vw;
             height: 100vh;
-            max-width: 100vw;
-            object-fit: contain;   /* вписывается без обрезания */
-            transition: opacity 0.3s ease;
+            object-fit: cover;   /* теперь заполняет весь экран, обрезая лишнее */
+            transition: opacity 0.2s ease;
             background: #222;
             user-select: none;
             -webkit-user-drag: none;
         }
-
-        /* Информационная панель (отладка) – можно убрать */
         #info {
             position: fixed;
             bottom: 20px;
             left: 0;
             right: 0;
             text-align: center;
-            color: rgba(255, 255, 255, 0.7);
+            color: rgba(255, 255, 255, 0.8);
             font-size: 14px;
-            background: rgba(0,0,0,0.5);
-            padding: 8px 12px;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 16px;
             width: fit-content;
             margin: 0 auto;
             border-radius: 20px;
             backdrop-filter: blur(4px);
             pointer-events: none;
             z-index: 10;
+            font-family: monospace;
         }
         #info span {
             font-weight: bold;
             color: #fff;
         }
+        #calibration-notice {
+            position: fixed;
+            top: 20px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: #ffaa00;
+            font-size: 14px;
+            background: rgba(0,0,0,0.7);
+            padding: 6px 12px;
+            width: fit-content;
+            margin: 0 auto;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            z-index: 10;
+            display: none;
+        }
     </style>
 </head>
 <body>
 
-    <div class="image-container">
-        <img id="current-image" src="img1.jpg" alt="Изображение">
-    </div>
+<div class="image-container">
+    <img id="current-image" src="img1.jpg" alt="Изображение">
+</div>
 
-    <div id="info">
-        Угол: <span id="angle-display">0</span>° &nbsp;|&nbsp; Картинка: <span id="index-display">1</span>/6
-    </div>
+<div id="info">
+    Угол: <span id="angle-display">0</span>° &nbsp;|&nbsp; Картинка: <span id="index-display">1</span>/6
+</div>
+<div id="calibration-notice">✅ Калибровка выполнена</div>
 
-    <script>
-        (function() {
-            // ----- НАСТРОЙКИ -----
-            // Замените имена файлов на свои (9:16)
-            const IMAGES = [
-                'img1.jpg',
-                'img2.jpg',
-                'img3.jpg',
-                'img4.jpg',
-                'img5.jpg',
-                'img6.jpg'
-            ];
-            // -----------------------
+<script>
+    (function() {
+		// ----- НАСТРОЙКИ -----
+		const IMAGES = [
+			'img1.jpg',
+			'img2.jpg',
+			'img3.jpg',
+			'img4.jpg',
+			'img5.jpg',
+			'img6.jpg'
+		];
+		// Диапазон наклона (в градусах) для переключения всех картинок
+		const RANGE_DEG = 30; // от -30 до +30 относительно начального положения
+		// -----------------------
 
-            const imgElement = document.getElementById('current-image');
-            const angleDisplay = document.getElementById('angle-display');
-            const indexDisplay = document.getElementById('index-display');
+		const imgElement = document.getElementById('current-image');
+		const angleDisplay = document.getElementById('angle-display');
+		const indexDisplay = document.getElementById('index-display');
+		const calibrationNotice = document.getElementById('calibration-notice');
 
-            let currentIndex = 0; // 0..5
+		let currentIndex = 0;
+		let calibrationBeta = null; // будет хранить начальный угол
 
-            // Функция обновления картинки по индексу
-            function updateImage(index) {
-                if (index < 0) index = 0;
-                if (index >= IMAGES.length) index = IMAGES.length - 1;
-                if (currentIndex !== index) {
-                    currentIndex = index;
-                    imgElement.src = IMAGES[index];
-                    indexDisplay.textContent = index + 1;
-                }
-            }
+		// Функция обновления картинки
+		function updateImage(index) {
+			if (index < 0) index = 0;
+			if (index >= IMAGES.length) index = IMAGES.length - 1;
+			if (currentIndex !== index) {
+				currentIndex = index;
+				imgElement.src = IMAGES[index];
+				indexDisplay.textContent = index + 1;
+			}
+		}
 
-            // Функция, которая по значению beta (угол наклона вперёд/назад) выбирает индекс
-            function handleOrientation(beta) {
-                // beta обычно в диапазоне от -180 до 180.
-                // При горизонтальном положении (телефон лежит плашмя) beta ≈ 90° (или -90°? зависит от устройства)
-                // Мы будем считать, что диапазон от -90° (наклон вперёд) до +90° (наклон назад) покрывает все нужные положения.
-                // Ограничим значения для удобства.
-                let clampedBeta = Math.min(90, Math.max(-90, beta)); // [-90, 90]
-                // Преобразуем в диапазон от 0 до 1
-                let normalized = (clampedBeta + 90) / 180; // 0..1
-                // Разбиваем на 6 интервалов (0..5)
-                let index = Math.floor(normalized * IMAGES.length);
-                // Гарантируем, что индекс не выходит за пределы
-                if (index >= IMAGES.length) index = IMAGES.length - 1;
-                updateImage(index);
-                // Обновляем отображение угла
-                angleDisplay.textContent = Math.round(clampedBeta);
-            }
+		// Функция обработки угла с учётом калибровки
+		function handleOrientation(beta) {
+			if (calibrationBeta === null) {
+				// Запоминаем первый полученный угол как нулевой
+				calibrationBeta = beta;
+				calibrationNotice.style.display = 'block';
+				setTimeout(() => { calibrationNotice.style.display = 'none'; }, 3000);
+				console.log('Калибровка: начальный угол =', calibrationBeta);
+				// Показываем первую картинку
+				updateImage(0);
+				angleDisplay.textContent = '0';
+				return;
+			}
 
-            // ----- Обработка гироскопа -----
-            function startListening() {
-                window.addEventListener('deviceorientation', function(event) {
-                    let beta = event.beta; // угол наклона вперёд/назад (ось X)
-                    if (beta !== null && beta !== undefined) {
-                        handleOrientation(beta);
-                    }
-                }, false);
-            }
+			// Вычисляем отклонение от калиброванного нуля
+			let delta = beta - calibrationBeta;
+			// Ограничиваем диапазон, чтобы не выходить за пределы
+			let clampedDelta = Math.min(RANGE_DEG, Math.max(-RANGE_DEG, delta));
+			// Преобразуем в индекс: от -RANGE до +RANGE => 0..5
+			let normalized = (clampedDelta + RANGE_DEG) / (2 * RANGE_DEG); // 0..1
+			let index = Math.floor(normalized * IMAGES.length);
+			if (index >= IMAGES.length) index = IMAGES.length - 1;
+			updateImage(index);
+			angleDisplay.textContent = Math.round(clampedDelta);
+		}
 
-            // ----- Запрос разрешения для iOS 13+ -----
-            if (typeof DeviceOrientationEvent !== 'undefined' &&
-                typeof DeviceOrientationEvent.requestPermission === 'function') {
-                // iOS 13+ требует явного разрешения
-                DeviceOrientationEvent.requestPermission()
-                    .then(state => {
-                        if (state === 'granted') {
-                            startListening();
-                        } else {
-                            alert('Разрешение на доступ к гироскопу не получено. Картинки не будут меняться.');
-                        }
-                    })
-                    .catch(err => {
-                        console.warn('Ошибка запроса разрешения:', err);
-                        // В некоторых браузерах может выбросить исключение, пробуем просто подписаться
-                        startListening();
-                    });
-            } else {
-                // Обычные браузеры (Android, десктопные) – подписываемся сразу
-                startListening();
-            }
+		// ----- Обработка гироскопа -----
+		function startListening() {
+			window.addEventListener('deviceorientation', function(event) {
+				let beta = event.beta;
+				if (beta !== null && beta !== undefined) {
+					handleOrientation(beta);
+				}
+			}, false);
+		}
 
-            // Запасной вариант: если гироскоп не работает, показываем первую картинку
-            // и через некоторое время выводим сообщение в консоль
-            setTimeout(() => {
-                // Проверим, обновилась ли картинка (если нет события)
-                // Небольшая заглушка – просто показываем первую
-                updateImage(0);
-            }, 1000);
+		// ----- Запрос разрешения для iOS 13+ -----
+		if (typeof DeviceOrientationEvent !== 'undefined' &&
+			typeof DeviceOrientationEvent.requestPermission === 'function') {
+			DeviceOrientationEvent.requestPermission()
+				.then(state => {
+					if (state === 'granted') {
+						startListening();
+					} else {
+						alert('Разрешение на доступ к гироскопу не получено. Картинки не будут меняться.');
+					}
+				})
+				.catch(err => {
+					console.warn('Ошибка запроса разрешения:', err);
+					startListening();
+				});
+		} else {
+			startListening();
+		}
 
-            // Для удобства обновляем угол при запуске (если гироскоп уже дал данные)
-            // Но обработчик сам вызовется при первом событии.
+		// Показываем первую картинку сразу (до калибровки)
+		updateImage(0);
 
-            console.log('Страница загружена. Наклоняйте телефон вперёд/назад для смены картинок.');
-        })();
-    </script>
+		console.log('Страница загружена. Держите телефон ровно – через секунду произойдёт калибровка.');
+	})();
+</script>
 </body>
 </html>
