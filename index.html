@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Смена картинок по наклону</title>
+    <style>
+        /* Обнуляем отступы и делаем картинку на весь экран */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Контейнер для картинки – занимает всю площадь экрана */
+        .image-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #111;
+        }
+
+        /* Сама картинка – сохраняем пропорции 9:16, масштабируем, чтобы влезла */
+        #current-image {
+            width: auto;
+            height: 100vh;
+            max-width: 100vw;
+            object-fit: contain;   /* вписывается без обрезания */
+            transition: opacity 0.3s ease;
+            background: #222;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        /* Информационная панель (отладка) – можно убрать */
+        #info {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            background: rgba(0,0,0,0.5);
+            padding: 8px 12px;
+            width: fit-content;
+            margin: 0 auto;
+            border-radius: 20px;
+            backdrop-filter: blur(4px);
+            pointer-events: none;
+            z-index: 10;
+        }
+        #info span {
+            font-weight: bold;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="image-container">
+        <img id="current-image" src="https://drive.google.com/uc?export=view&id=1G42PCaVSPX2LUrWzVnKnpS1NepIFc9KG" alt="Изображение">
+    </div>
+
+    <div id="info">
+        Угол: <span id="angle-display">0</span>° &nbsp;|&nbsp; Картинка: <span id="index-display">1</span>/6
+    </div>
+
+    <script>
+        (function() {
+            // ----- НАСТРОЙКИ -----
+            // Замените имена файлов на свои (9:16)
+            const IMAGES = [
+                'https://drive.google.com/uc?export=view&id=1G42PCaVSPX2LUrWzVnKnpS1NepIFc9KG',
+                'https://drive.google.com/uc?export=view&id=1B-45EDAcGsT32LR-wjoP10p5nDaTuyKb',
+                'https://drive.google.com/uc?export=view&id=1097GUQ7JOUkhfRMBHuvWAakyLUIrxOP5',
+                'https://drive.google.com/uc?export=view&id=1fN6VdaLTYVxsF1Rq9jz6FgFLqEjBlEge',
+                'https://drive.google.com/uc?export=view&id=1dgMhF9fToKsrzNx8v7VGE7oXomCKIoQH',
+                'https://drive.google.com/uc?export=view&id=1uYPHaVtEjK2jtvvHbardrUGf4UKenXWn'
+            ];
+            // -----------------------
+
+            const imgElement = document.getElementById('current-image');
+            const angleDisplay = document.getElementById('angle-display');
+            const indexDisplay = document.getElementById('index-display');
+
+            let currentIndex = 0; // 0..5
+
+            // Функция обновления картинки по индексу
+            function updateImage(index) {
+                if (index < 0) index = 0;
+                if (index >= IMAGES.length) index = IMAGES.length - 1;
+                if (currentIndex !== index) {
+                    currentIndex = index;
+                    imgElement.src = IMAGES[index];
+                    indexDisplay.textContent = index + 1;
+                }
+            }
+
+            // Функция, которая по значению beta (угол наклона вперёд/назад) выбирает индекс
+            function handleOrientation(beta) {
+                // beta обычно в диапазоне от -180 до 180.
+                // При горизонтальном положении (телефон лежит плашмя) beta ≈ 90° (или -90°? зависит от устройства)
+                // Мы будем считать, что диапазон от -90° (наклон вперёд) до +90° (наклон назад) покрывает все нужные положения.
+                // Ограничим значения для удобства.
+                let clampedBeta = Math.min(90, Math.max(-90, beta)); // [-90, 90]
+                // Преобразуем в диапазон от 0 до 1
+                let normalized = (clampedBeta + 90) / 180; // 0..1
+                // Разбиваем на 6 интервалов (0..5)
+                let index = Math.floor(normalized * IMAGES.length);
+                // Гарантируем, что индекс не выходит за пределы
+                if (index >= IMAGES.length) index = IMAGES.length - 1;
+                updateImage(index);
+                // Обновляем отображение угла
+                angleDisplay.textContent = Math.round(clampedBeta);
+            }
+
+            // ----- Обработка гироскопа -----
+            function startListening() {
+                window.addEventListener('deviceorientation', function(event) {
+                    let beta = event.beta; // угол наклона вперёд/назад (ось X)
+                    if (beta !== null && beta !== undefined) {
+                        handleOrientation(beta);
+                    }
+                }, false);
+            }
+
+            // ----- Запрос разрешения для iOS 13+ -----
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                // iOS 13+ требует явного разрешения
+                DeviceOrientationEvent.requestPermission()
+                    .then(state => {
+                        if (state === 'granted') {
+                            startListening();
+                        } else {
+                            alert('Разрешение на доступ к гироскопу не получено. Картинки не будут меняться.');
+                        }
+                    })
+                    .catch(err => {
+                        console.warn('Ошибка запроса разрешения:', err);
+                        // В некоторых браузерах может выбросить исключение, пробуем просто подписаться
+                        startListening();
+                    });
+            } else {
+                // Обычные браузеры (Android, десктопные) – подписываемся сразу
+                startListening();
+            }
+
+            // Запасной вариант: если гироскоп не работает, показываем первую картинку
+            // и через некоторое время выводим сообщение в консоль
+            setTimeout(() => {
+                // Проверим, обновилась ли картинка (если нет события)
+                // Небольшая заглушка – просто показываем первую
+                updateImage(0);
+            }, 1000);
+
+            // Для удобства обновляем угол при запуске (если гироскоп уже дал данные)
+            // Но обработчик сам вызовется при первом событии.
+
+            console.log('Страница загружена. Наклоняйте телефон вперёд/назад для смены картинок.');
+        })();
+    </script>
+</body>
+</html>
